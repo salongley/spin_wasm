@@ -3,7 +3,34 @@ use spin_sdk::{
     http::{internal_server_error, Request, Response},
     http_component, redis,
 };
+use std::{str, collections::HashMap};
 
+use handlebars::Handlebars;
+use serde::Serialize;
+use serde_json::{json, Value};
+
+#[derive(Serialize)]
+struct Parameters {
+    args: Vec<String>,
+    vars: HashMap<String, String>,
+    body: Option<Value>,
+}
+
+fn get_parameters(request: Request) -> Parameters {
+    let mut body = None;
+
+    if str::from_utf8(request.headers().get("content-length").unwrap().as_ref()).unwrap().parse::<usize>().unwrap() != 0 {
+        if let Ok(body_json) = serde_json::from_str(str::from_utf8(request.body().as_ref().unwrap().as_ref()).unwrap()) {
+            body = Some(body_json);
+        }
+    }
+
+    Parameters { 
+        args: request.uri().query().unwrap_or("None").split('&').map(String::from).collect(),
+        vars: request.headers().iter().map(|h| (String::from(h.0.as_str()), String::from(str::from_utf8(h.1.as_ref()).unwrap()))).collect(), 
+        body 
+    }
+}
 // The environment variable set in `spin.toml` that points to the
 // address of the Redis server that the component will publish
 // a message to.
@@ -22,6 +49,7 @@ fn publish(req: Request) -> Result<Response> {
     let address = std::env::var(REDIS_ADDRESS_ENV)?;
     let channel = std::env::var(REDIS_CHANNEL_ENV)?;
 
+    let data = get_parameters(req);
     
     // Get the message to publish from the Redis key "mykey"
     let payload = redis::get(&address, &"mykey").map_err(|_| anyhow!("Error querying Redis"))?;
